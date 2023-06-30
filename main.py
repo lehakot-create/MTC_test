@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 from logger import logger
 
@@ -12,8 +13,11 @@ if not os.path.exists(os.path.join(current_dir, 'Обработанные дан
     logger.info('Создана папка Обработанные данные')
 out_folder_path = os.path.join(current_dir, 'Обработанные данные')
 
-prefix_dct = {}
-total_duration_dct = {}
+prefix_dct = {}  # словарь с префиксами
+total_duration_dct = {}  # словарь с общей длительностью разговоров для каждой пары префиксов
+dct_len_prefix = {
+        '1': [], '2': [], '3': [], '4': [],
+        '5': [], '6': [], '7': [], '8': [], '9': [], '0': []}  # длины префиксов
 
 
 def get_list_file(folder_path):
@@ -26,21 +30,28 @@ def get_list_file(folder_path):
 
 
 def get_file_data(file_path: str):
-    # возвращает содержимое файла
+    """
+    возвращает содержимое файла
+    """
     with open(file_path, 'r') as file:
         for line in file:
             yield line
 
 
-def write_to_file(file_name: str, data: str):
-    # записываем строки в файл
+def write_to_file(file_name: str, data: list):
+    """
+    записываем строки в файл
+    """
     file_path = os.path.join(out_folder_path, file_name)
     with open(file_path, 'a') as file:
-        file.write(data)
+        for el in data:
+            file.write(el)
 
 
 def load_prefix(file_list: list):
-    # загружаем префиксы в словарь
+    """
+    загружаем префиксы в словарь
+    """
     line = get_file_data(os.path.join(folder_path_prefix, file_list[0]))
     while True:
         try:
@@ -52,13 +63,29 @@ def load_prefix(file_list: list):
             break
 
 
+def load_len_prefix():
+    """
+    загружаем длины префиксов в словарь
+    """
+    for key in prefix_dct:
+        if len(key):
+            lst = dct_len_prefix[key[0]]
+            if len(key) not in lst:
+                lst.append(len(key))
+                dct_len_prefix[key[0]] = lst
+
+
 def total_duration(msisdn_prfx: str, dialed_prfx: str, duration: int):
-     # суммируем общую продолжительность разговоров по паре префиксов
+     """
+     суммируем общую продолжительность разговоров по паре префиксов
+     """
      total_duration_dct[f'{msisdn_prfx}-{dialed_prfx}'] = total_duration_dct.get(f'{msisdn_prfx}-{dialed_prfx}', 0) + duration
 
 
 def parse_phone_connect(phn_conn: str):
-    # обрабатываем каждую строку
+    """
+    обрабатываем каждую строку
+    """
     out = phn_conn.replace('\n', '').split(',')
 
     msisdn = out[5]
@@ -74,27 +101,19 @@ def parse_phone_connect(phn_conn: str):
     out[10] = dialed_prfx
 
     return ','.join(out) + '\n'
-    
 
 
 def find_prefix_in_phone(phone: str):
-    # подбираем префикс
-    max_length = 11
-    for index in range(max_length-1, -1, -1): # можно брать срезы только определенной длины
+    """
+    подбираем префикс
+    """
+    lst = dct_len_prefix[phone[0]]
+    for index in lst: # можно брать срезы только определенной длины
         slice_ = phone[:index]
-        # if prefix_dct.get(slice_, None):
         if slice_ in prefix_dct:
-            # print('Find prefix in phone:',phone,  slice_, prefix_dct.get(slice_))
             return prefix_dct.get(slice_)
     return 'Unknown'
 
-
-# выделение префикса из телефона вызывающего и вызываемого абонента
-#
-#запись префиксов в строку
-#
-#запись продолжительности разговоров по каждой префиксной паре в файл
-#
 
 def main():
     # загружаем префиксы
@@ -102,28 +121,37 @@ def main():
     file_list = get_list_file(folder_path_prefix)
     load_prefix(file_list)
 
+    load_len_prefix()
+
     # получаем список файлов
     file_list = get_list_file(folder_path)
 
     # Проходим по каждому файлу и читаем его содержимое построчно
     logger.info('Обрабатываем файлы')
     for file_name in file_list:
+        data = []
         file_path = os.path.join(folder_path, file_name)
         file_data = get_file_data(file_path)
         while True:
             try:
                 line = next(file_data)
                 result = parse_phone_connect(line)
-                write_to_file(file_name, result)
+                data.append(result)
             except StopIteration:
+                write_to_file(file_name, data)
                 logger.info(f'Даныне записаны в файл {file_name}')
                 break
 
     logger.info('Записываем данные в файл VOLUMES.TXT')
+    data = []
     for key, value in total_duration_dct.items():
         prefix_zone_msisdn, prefix_zone_dialed = key.split('-')
-        write_to_file('VOLUMES.TXT', f'{prefix_zone_msisdn},{prefix_zone_dialed},{value}\n') # плохо переделать
+        data.append(f'{prefix_zone_msisdn},{prefix_zone_dialed},{value}\n')
+    write_to_file('VOLUMES.TXT', data)
 
 
 if __name__ == '__main__':
+    t0 = datetime.now()
     main()
+    t1 = datetime.now()
+    logger.info(f'Время выпонения скрипта: {t1 - t0}')
